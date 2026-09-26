@@ -1,4 +1,4 @@
-> **Version:** v1.4 | **Last updated:** 2026-09-26 22:07 IST | **By:** Antigravity
+> **Version:** v1.5 | **Last updated:** 2026-09-27 01:34 IST | **By:** Antigravity
 
 # Experiment Log
 
@@ -27,6 +27,7 @@ Add a new row to the table below **before merging your branch to main**. Fill in
 | 4 | 2026-09-26 | V3 Two-Stage Pipeline (1.0 Split) | K=10, MiniLM-L12, LGBM, ms-marco-MiniLM-L-6-v2 (0.05-0.95), chunked-merges | pending | Antigravity | `HEAD` | Attempting to solve LB gap with a Transformer Reranker. Fixed Int64Vector OOM via 5M-row chunked batched merges. |
 | 5 | 2026-09-26 | V3 Zero-Shot LOCO Simulation | K=10, LOCO=India, Forced Zero-Shot Mask=True | planned | Antigravity | `HEAD` | Will train strictly on US and evaluate strictly on India to mathematically simulate the France zero-shot gap, forcing 100% transformer reranking for zero-shot regions. |
 | 6 | 2026-09-26 | V4 Pure Ensemble (Reproduced) | LGBM+XGB avg, K=25, word-unigram, US=0.930/India=0.920 | 0.8878 | Antigravity | `HEAD` | Clean V4 reproduction via v4_validate.py. No reranker, no penalty. Blocking recall=0.8108. 51.1M val pairs, 441K val S1. Manifest: cache_v4/v4_manifest.json. |
+| 7 | 2026-09-27 | V5 Single-Pass Conditional Blocking | K=25 semantic, Orphan trigger < 0.75, Targeted 3-gram TF-IDF (top_k=5), Rare Hash (freq<=15) | pending CV | Antigravity | `HEAD` | Diagnostic proven: Isolated orphans (1.2% of dataset) and ran 90%-shrunken TF-IDF. Blocking recall jumped from 81.08% to 90.84% (+10% absolute). Time overhead: <4 mins CPU. Candidate volume: 63.4M (+12M). |
 
 *(Add new experiments above this line.)*
 
@@ -43,6 +44,7 @@ Add a new row to the table below **before merging your branch to main**. Fill in
 ## Changelog
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v1.5 | 2026-09-27 | Antigravity | Logged experiment #7: V5 Single-Pass Conditional Blocking. |
 | v1.4 | 2026-09-26 | Antigravity | Logged experiment #6: V4 Pure Ensemble reproduced at 0.8878 with clean cache provenance. |
 | v1.3 | 2026-09-26 | Antigravity | Logged pending V3 Two-Stage and planned V3 LOCO experiments. |
 | v1.2 | 2026-09-26 | Antigravity | Logged completed results for V2 GPU Semantic Blocking. |

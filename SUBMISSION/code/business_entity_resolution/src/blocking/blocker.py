@@ -1,6 +1,6 @@
 """
-Blocking - country-first hard partition plus GPU Semantic Blocking candidate generation.
-(PyTorch Chunked Optimized)
+Blocking - country-first hard partition plus GPU Semantic Blocking candidate generation,
+augmented with Single-Pass Conditional Heuristics (TF-IDF & Rare Tokens).
 """
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import BLOCKING_TOP_K, OUTPUT_DIR
 
+# Import heuristic blockers
+from blocking.heuristic_blocker import _generate_tfidf_candidates, _generate_rare_token_candidates
 
 def _dense_top_k(query_embeddings: torch.Tensor, index_embeddings: torch.Tensor, top_k: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -64,7 +66,7 @@ def generate_candidates(
     target_country: str | None = None,
     cache_prefix: str = 'train',
 ) -> pd.DataFrame:
-    """Generate candidate pairs using country-first partitioning + Semantic GPU blocking."""
+    """Generate candidate pairs using Semantic GPU blocking + CPU Heuristics."""
     if top_k is None:
         top_k = BLOCKING_TOP_K
 
@@ -102,7 +104,7 @@ def generate_candidates(
         if len(s1_c) == 0:
             continue
         
-        country_dfs = []
+        semantic_dfs_for_country = []
 
         print(f"  Encoding S1 ...")
         s1_texts = s1_c['name_address'].fillna('').tolist()
@@ -113,7 +115,6 @@ def generate_candidates(
             print(f"  Encoding and Blocking S2 ({len(s2_c):,} records) ...")
             s2_texts = s2_c['name_address'].fillna('').tolist()
             s2_embeddings = model.encode(s2_texts, batch_size=1024, convert_to_tensor=True, normalize_embeddings=True, device=device, show_progress_bar=True)
-            # Move massive S2 embeddings to CPU to prevent VRAM paging (2.5GB)
             s2_embeddings = s2_embeddings.cpu()
             if device == 'cuda': torch.cuda.empty_cache()
             
@@ -121,28 +122,24 @@ def generate_candidates(
             s2_ids = s2_c['entity_id'].values
 
             q_idx_arr, s1_idx_arr, scores_arr = s2_results
-            
             del s2_embeddings, s2_results
             if device == 'cuda': torch.cuda.empty_cache()
             
-            s2_df = pd.DataFrame()
-            s2_df['s1_id'] = s1_ids[s1_idx_arr]
-            s2_df['s2s3_id'] = s2_ids[q_idx_arr]
-            s2_df['source'] = pd.Categorical(['S2'] * len(s1_idx_arr))
-            s2_df['country'] = pd.Categorical([country] * len(s1_idx_arr))
-            s2_df['semantic_score'] = scores_arr
-            del q_idx_arr, s1_idx_arr, scores_arr
-            
-            # Prune candidates to dramatically reduce candidate set size for final ranking
+            s2_df = pd.DataFrame({
+                's1_id': s1_ids[s1_idx_arr],
+                's2s3_id': s2_ids[q_idx_arr],
+                'source': pd.Categorical(['S2'] * len(s1_idx_arr)),
+                'country': pd.Categorical([country] * len(s1_idx_arr)),
+                'semantic_score': scores_arr
+            })
             s2_df = s2_df[s2_df['semantic_score'] >= 0.55].reset_index(drop=True)
-            country_dfs.append(s2_df)
+            semantic_dfs_for_country.append(s2_df)
             gc.collect()
 
         if len(s3_c) > 0:
             print(f"  Encoding and Blocking S3 ({len(s3_c):,} records) ...")
             s3_texts = s3_c['name_address'].fillna('').tolist()
             s3_embeddings = model.encode(s3_texts, batch_size=1024, convert_to_tensor=True, normalize_embeddings=True, device=device, show_progress_bar=True)
-            # Move massive S3 embeddings to CPU to prevent VRAM paging
             s3_embeddings = s3_embeddings.cpu()
             if device == 'cuda': torch.cuda.empty_cache()
             
@@ -150,28 +147,59 @@ def generate_candidates(
             s3_ids = s3_c['entity_id'].values
 
             q_idx_arr, s1_idx_arr, scores_arr = s3_results
-            
             del s3_embeddings, s3_results
             if device == 'cuda': torch.cuda.empty_cache()
             
-            s3_df = pd.DataFrame()
-            s3_df['s1_id'] = s1_ids[s1_idx_arr]
-            s3_df['s2s3_id'] = s3_ids[q_idx_arr]
-            s3_df['source'] = pd.Categorical(['S3'] * len(s1_idx_arr))
-            s3_df['country'] = pd.Categorical([country] * len(s1_idx_arr))
-            s3_df['semantic_score'] = scores_arr
-            del q_idx_arr, s1_idx_arr, scores_arr
-            
-            # Prune candidates to dramatically reduce candidate set size for final ranking
+            s3_df = pd.DataFrame({
+                's1_id': s1_ids[s1_idx_arr],
+                's2s3_id': s3_ids[q_idx_arr],
+                'source': pd.Categorical(['S3'] * len(s1_idx_arr)),
+                'country': pd.Categorical([country] * len(s1_idx_arr)),
+                'semantic_score': scores_arr
+            })
             s3_df = s3_df[s3_df['semantic_score'] >= 0.55].reset_index(drop=True)
-            country_dfs.append(s3_df)
+            semantic_dfs_for_country.append(s3_df)
             gc.collect()
 
         del s1_embeddings
         if device == 'cuda': torch.cuda.empty_cache()
         gc.collect()
+        
+        # ── V5 Heuristic Blocking ──
+        print("  Applying V5 Single-Pass Heuristics...")
+        c_semantic = pd.concat(semantic_dfs_for_country, ignore_index=True) if semantic_dfs_for_country else pd.DataFrame()
+        s23_c = pd.concat([s2_c, s3_c])
+        if 'source' not in s23_c.columns:
+            s23_c['source'] = s23_c['entity_id'].apply(lambda x: 'S2' if str(x).startswith('S2') else 'S3')
+            
+        streams = [c_semantic]
+        
+        if len(c_semantic) > 0 and len(s1_c) > 0:
+            # 1. Orphan TF-IDF (Score < 0.75)
+            max_scores = c_semantic.groupby('s1_id')['semantic_score'].max()
+            orphan_ids = set(max_scores[max_scores < 0.75].index)
+            missing_ids = set(s1_c['entity_id']) - set(c_semantic['s1_id'])
+            all_orphan_ids = orphan_ids.union(missing_ids)
+            
+            print(f"    -> Identified {len(all_orphan_ids):,} orphans for targeted TF-IDF")
+            orphan_s1_c = s1_c[s1_c['entity_id'].isin(all_orphan_ids)].copy()
+            
+            if len(orphan_s1_c) > 0:
+                tfidf_cands = _generate_tfidf_candidates(orphan_s1_c, s23_c, top_k=5)
+                streams.append(tfidf_cands)
+                
+            # 2. Rare Token Hash Blocking (Freq <= 15)
+            rare_cands = _generate_rare_token_candidates(s1_c, s23_c, max_freq=15)
+            streams.append(rare_cands)
+            
+        print("  Unioning all streams...")
+        combined_df = pd.concat(streams, ignore_index=True)
+        if len(combined_df) > 0:
+            combined_df = combined_df.drop_duplicates(subset=['s1_id', 's2s3_id'])
+            
+        country_dfs = [combined_df]
 
-        print(f"  [cache] Saving {country} candidates to cache...")
+        print(f"  [cache] Saving {country} candidates to cache ({len(combined_df):,} total pairs)...")
         joblib.dump(country_dfs, country_cache_path)
         all_pairs_dfs.extend(country_dfs)
 
@@ -191,7 +219,7 @@ def _save_candidate_pairs(pairs_df: pd.DataFrame, s1: pd.DataFrame, save_path: s
     result = all_s1.merge(grouped, on='source1_entity_id', how='left')
     result['candidate_entity_ids'] = result['candidate_entity_ids'].fillna('')
     result.to_csv(save_path, sep='\t', index=False)
-    print(f"[blocker] Saved candidate_pairs.tsv: {len(result):,} rows → {save_path}")
+    print(f"[blocker] Saved candidate_pairs.tsv: {len(result):,} rows -> {save_path}")
 
 
 def compute_blocking_recall(pairs_df: pd.DataFrame, ground_truth: dict[str, set[str]]) -> float:
