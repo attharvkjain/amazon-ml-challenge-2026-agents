@@ -82,12 +82,12 @@
 | Metric | Value | Details |
 |--------|-------|---------|
 | **Best Local Validation Score (F0.5)** | 0.8878 | Pure Stage 1 Ensemble (LightGBM + XGBoost). Reranker bypassed. |
-| **Best Public LB Score** | 0.770 | Submission 3 (V2 GPU Semantic K=10) |
+| **Best Public LB Score** | 0.788 | Submission 4 (V4 Pure Ensemble K=25) |
 | **Approach** | V4 Pure Ensemble Architecture | LGBM+XGB Ensemble. Transformer dropped due to 0.04 degradation. |
-| **Current Focus** | Test Inference | Running full test prediction with the pure V4 ensemble pipeline. | Out-of-Core ML Training | Successfully loaded 17.5GB arrays via mmap. LightGBM currently training, backed by per-model caching. |
+| **Current Focus** | Architecture Improvements (V5) | Chasing 0.99 via diagnosing candidate recall, building multi-record evidence, and expanding retrieval paths. |
 | **Commit Hash** | `HEAD` | — |
 | **Produced By** | Antigravity | — |
-| **Date** | 2026-09-26 | — |
+| **Date** | 2026-09-27 | — |
 
 > See [`context/experiment-log.md`](context/experiment-log.md) for experiment history and [`context/submission-log.md`](context/submission-log.md) for canonical submission scores.
 

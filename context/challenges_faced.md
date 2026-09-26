@@ -1,4 +1,4 @@
-> **Version:** v2.1 | **Last updated:** 2026-09-26 16:25 IST | **By:** Antigravity
+> **Version:** v2.3 | **Last updated:** 2026-09-26 22:08 IST | **By:** Antigravity
 
 # Challenges, Pitfalls, and Resolutions
 
@@ -77,6 +77,7 @@ This document logs all errors, crashes, performance bottlenecks, and design issu
 ## Changelog
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v2.3 | 2026-09-26 | Antigravity | Added Issues 18 (Threshold-Dictionary TypeError) and 19 (V3 Cache Contamination). |
 | v2.2 | 2026-09-26 | Antigravity | Added Issue 16 (O(N log N) Pandas Threshold Bottleneck & Caching Gap). |
 | v2.1 | 2026-09-26 | Antigravity | Added Issues 13 (Loky IPC Pickling OOM), 14 (np.vstack Array Memory Error), and 15 (LightGBM Segfault / mmap). |
 | v2.0 | 2026-09-26 | Antigravity | Added Issue 11 (Skewed Public LB due to Zero-shot France) and Issue 12 (Pandas Int64Vector OOM chunking fix). |
@@ -85,3 +86,11 @@ This document logs all errors, crashes, performance bottlenecks, and design issu
 ## Issue 17: Polling / Sleeping Task Loops
 - **Problem:** AI agents got stuck in task-management loops, constantly polling `status` and `cat`-ing logs of background tasks without yielding turns, which wasted >20 minutes of user time.
 - **Solution:** Never use manual `sleep` timers or constant polling for background jobs. Launch the job, immediately yield control to the router, and let the system automatically wake the agent when the job finishes.
+
+## Issue 18: Threshold-Dictionary Progress-Path TypeError
+- **Problem:** In `main.py` line 273, the test inference progress file path was formatted as `f'test_progress_sample_{sample_key}_threshold_{best_threshold:.3f}.txt'`. When `sweep_threshold()` returns per-country thresholds as a `dict` (e.g. `{'US': 0.93, 'India': 0.92}`), Python's `:.3f` format spec raises `TypeError: unsupported format string passed to dict.__format__`. This prevented any V4 test inference from starting.
+- **Resolution:** Replaced the float format with a conditional: if `best_threshold` is a dict, use the stable tag `"v4_percountry"`; otherwise use `f"{best_threshold:.3f}"`.
+
+## Issue 19: V3 Cache Contamination in V4 Runs
+- **Problem:** `model_cache_1.pkl` contained V3 artifacts: reranker-modified probabilities, V3 per-country thresholds (`US=0.93, India=0.95`), and V3 F0.5 (`0.8436`). Because `main.py` unconditionally loads this cache when it exists (`if os.path.exists(model_cache_path)`), any V4 run silently inherited V3 calibration. The V4 pure-ensemble thresholds are actually `US=0.93, India=0.92` — the India threshold differs by 0.03 due to the reranker's probability distortion.
+- **Resolution:** Created an isolated `cache_v4/` directory with `v4_validate.py` that loads only the shared version-agnostic models (`lgb_model.pkl`, `xgb_model.pkl`) and computes fresh ensemble probabilities. The V4 manifest (`v4_manifest.json`) records exact provenance. A separate `v4_inference.py` reads exclusively from `cache_v4/`.

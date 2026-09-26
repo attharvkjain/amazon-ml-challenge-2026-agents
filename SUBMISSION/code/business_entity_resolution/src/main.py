@@ -268,9 +268,14 @@ def run_train(skip_inference=False, loco_country=None):
         joblib.dump(test_data, test_data_path)
         
     tsv_path = os.path.join(OUTPUT_DIR, 'matching_results.tsv')
+    # V4: Use stable tag instead of formatting dict as float (fixes TypeError)
+    if isinstance(best_threshold, dict):
+        threshold_tag = "v4_percountry"
+    else:
+        threshold_tag = f"{best_threshold:.3f}"
     progress_path = os.path.join(
         CACHE_DIR,
-        f'test_progress_sample_{sample_key}_threshold_{best_threshold:.3f}.txt',
+        f'test_progress_sample_{sample_key}_threshold_{threshold_tag}.txt',
     )
     
     completed_countries = set()
@@ -366,13 +371,6 @@ def run_predict():
         test_data['test_s1'], test_data['test_s2'], test_data['test_s3'],
     )
 
-    # Features
-    print("\n[features] Extracting TEST features ...")
-    X_test = extract_features(
-        test_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
-    )
-    test_probs = matcher.predict_proba(X_test)
-    
     if not os.path.exists(THRESHOLD_PATH):
         raise FileNotFoundError(
             f"Tuned threshold not found at {THRESHOLD_PATH}; run train mode first."
@@ -382,11 +380,30 @@ def run_predict():
     import json
     try:
         threshold = json.loads(threshold_text)
-        train_countries = list(threshold.keys())
     except json.JSONDecodeError:
         threshold = float(threshold_text)
-        train_countries = ['US', 'India']
+
+    # Features and Predict in Chunks
+    print(f"\n[features] Extracting TEST features for {len(test_pairs)} pairs in chunks...")
+    CHUNK_SIZE = 10_000_000
+    all_test_probs = []
+    
+    for i in range(0, len(test_pairs), CHUNK_SIZE):
+        chunk_pairs = test_pairs.iloc[i:i+CHUNK_SIZE].copy()
+        print(f"  -> Processing chunk {i//CHUNK_SIZE + 1} ({len(chunk_pairs):,} pairs) ...")
+        X_chunk = extract_features(
+            chunk_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
+        )
+        probs_chunk = matcher.predict_proba(X_chunk)
+        all_test_probs.append(probs_chunk)
         
+        # Free memory
+        del X_chunk
+        import gc
+        gc.collect()
+        
+    test_probs = np.concatenate(all_test_probs)
+
     test_s1_ids = test_data['test_s1']['entity_id']
     matching_df = format_and_save_output(
         test_pairs, test_probs, threshold, test_s1_ids,
