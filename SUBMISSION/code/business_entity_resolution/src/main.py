@@ -25,6 +25,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (
+    PIPELINE_VERSION,
     SAMPLE_FRAC, OUTPUT_DIR, DIAGNOSTICS_DIR, VALIDATE_SCRIPT,
     TEST_DIR, TEST_S1_COUNT, THRESHOLD_PATH,
 )
@@ -98,15 +99,15 @@ def run_train(skip_inference=False, loco_country=None):
     print("="*60)
     
     t0_stage3 = time.time()
-    train_pairs_path = os.path.join(CACHE_DIR, f'train_pairs_{sample_key}.pkl')
-    val_pairs_path = os.path.join(CACHE_DIR, f'val_pairs_{sample_key}.pkl')
+    train_pairs_path = os.path.join(CACHE_DIR, f'train_pairs_{PIPELINE_VERSION}_{sample_key}.pkl')
+    val_pairs_path = os.path.join(CACHE_DIR, f'val_pairs_{PIPELINE_VERSION}_{sample_key}.pkl')
 
     if os.path.exists(train_pairs_path):
         print("\n[cache] Loading TRAIN candidates from cache...")
         train_pairs, train_blocking_recall = joblib.load(train_pairs_path)
     else:
         print("\n[blocking] Generating TRAIN candidates ...")
-        train_pairs = generate_candidates(data['train_s1'], data['train_s2'], data['train_s3'], cache_prefix='train')
+        train_pairs = generate_candidates(data['train_s1'], data['train_s2'], data['train_s3'], cache_prefix=f'train_{PIPELINE_VERSION}_{sample_key}')
         train_blocking_recall = compute_blocking_recall(train_pairs, data['train_gt'])
         joblib.dump((train_pairs, train_blocking_recall), train_pairs_path)
 
@@ -115,7 +116,7 @@ def run_train(skip_inference=False, loco_country=None):
         val_pairs, val_blocking_recall = joblib.load(val_pairs_path)
     else:
         print("\n[blocking] Generating VAL candidates ...")
-        val_pairs = generate_candidates(data['val_s1'], data['val_s2'], data['val_s3'], cache_prefix='val')
+        val_pairs = generate_candidates(data['val_s1'], data['val_s2'], data['val_s3'], cache_prefix=f'val_{PIPELINE_VERSION}_{sample_key}')
         val_blocking_recall = compute_blocking_recall(val_pairs, data['val_gt'])
         joblib.dump((val_pairs, val_blocking_recall), val_pairs_path)
     timing_dict['Stage 3: Blocking'] = time.time() - t0_stage3
@@ -126,8 +127,8 @@ def run_train(skip_inference=False, loco_country=None):
     print("="*60)
     
     t0_stage4 = time.time()
-    train_feat_path = os.path.join(CACHE_DIR, f'train_feat_{sample_key}.pkl')
-    val_feat_path = os.path.join(CACHE_DIR, f'val_feat_{sample_key}.pkl')
+    train_feat_path = os.path.join(CACHE_DIR, f'train_feat_{PIPELINE_VERSION}_{sample_key}.pkl')
+    val_feat_path = os.path.join(CACHE_DIR, f'val_feat_{PIPELINE_VERSION}_{sample_key}.pkl')
 
     if os.path.exists(train_feat_path):
         print("\n[cache] Loading TRAIN features from cache...")
@@ -148,7 +149,7 @@ def run_train(skip_inference=False, loco_country=None):
         joblib.dump((X_val, y_val), val_feat_path)
     timing_dict['Stage 4: Feature Extraction'] = time.time() - t0_stage4
 
-    model_cache_path = os.path.join(CACHE_DIR, f'model_cache_{sample_key}.pkl')
+    model_cache_path = os.path.join(CACHE_DIR, f'model_cache_{PIPELINE_VERSION}_{sample_key}.pkl')
     matcher = EntityMatcher()
 
     if os.path.exists(model_cache_path):
@@ -268,9 +269,14 @@ def run_train(skip_inference=False, loco_country=None):
         joblib.dump(test_data, test_data_path)
         
     tsv_path = os.path.join(OUTPUT_DIR, 'matching_results.tsv')
+    # V4: Use stable tag instead of formatting dict as float (fixes TypeError)
+    if isinstance(best_threshold, dict):
+        threshold_tag = "v4_percountry"
+    else:
+        threshold_tag = f"{best_threshold:.3f}"
     progress_path = os.path.join(
         CACHE_DIR,
-        f'test_progress_sample_{sample_key}_threshold_{best_threshold:.3f}.txt',
+        f'test_progress_{PIPELINE_VERSION}_{sample_key}_threshold_{threshold_tag}.txt',
     )
     
     completed_countries = set()
@@ -290,15 +296,25 @@ def run_train(skip_inference=False, loco_country=None):
         country_pairs = generate_candidates(
             test_data['test_s1'], test_data['test_s2'], test_data['test_s3'],
             target_country=country,
-            cache_prefix='test'
+            cache_prefix=f'test_{PIPELINE_VERSION}'
         )
         
-        print("\n[features] Extracting features ...")
-        X_test = extract_features(
-            country_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
-        )
-        
-        test_probs = matcher.predict_proba(X_test)
+        probs_cache_path = os.path.join(CACHE_DIR, f'test_probs_{PIPELINE_VERSION}_{sample_key}_{threshold_tag}_{country}.pkl')
+        if os.path.exists(probs_cache_path):
+            print("\n[cache] Loading precomputed probabilities...")
+            test_probs = joblib.load(probs_cache_path)
+        else:
+            print("\n[features] Extracting features ...")
+            X_test = extract_features(
+                country_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
+            )
+            test_probs = matcher.predict_proba(X_test)
+            joblib.dump(test_probs, probs_cache_path)
+            
+            # Free memory early
+            del X_test
+            import gc
+            gc.collect()
         
         # (Reranker bypassed - V4 Ensemble)
         # --------------------------
@@ -315,7 +331,7 @@ def run_train(skip_inference=False, loco_country=None):
         with open(progress_path, 'a') as f:
             f.write(country + '\n')
             
-        del country_pairs, X_test, test_probs, preds_df
+        del country_pairs, test_probs, preds_df
         gc.collect()
     timing_dict['Stage 8-12: Test Inference'] = time.time() - t0_stage8
 
@@ -351,48 +367,90 @@ def run_train(skip_inference=False, loco_country=None):
 
 
 def run_predict():
-    """Load trained model and predict on test data."""
+    """Load trained model and predict on test data with country-level chunking and caching."""
     print("\n[predict] Loading model ...")
     matcher = EntityMatcher()
     matcher.load()
 
     # Load and preprocess test data
-    test_data = load_test_data()
-    test_data = _preprocess_all(test_data, ['test'])
+    test_data_path = os.path.join(CACHE_DIR, 'test_data.pkl')
+    if os.path.exists(test_data_path):
+        print("[cache] Loading preprocessed test data from cache...")
+        test_data = joblib.load(test_data_path)
+    else:
+        test_data = load_test_data()
+        test_data = _preprocess_all(test_data, ['test'])
+        joblib.dump(test_data, test_data_path)
 
-    # Block
-    print("\n[blocking] Generating TEST candidates ...")
-    test_pairs = generate_candidates(
-        test_data['test_s1'], test_data['test_s2'], test_data['test_s3'],
-    )
-
-    # Features
-    print("\n[features] Extracting TEST features ...")
-    X_test = extract_features(
-        test_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
-    )
-    test_probs = matcher.predict_proba(X_test)
-    
     if not os.path.exists(THRESHOLD_PATH):
-        raise FileNotFoundError(
-            f"Tuned threshold not found at {THRESHOLD_PATH}; run train mode first."
-        )
+        raise FileNotFoundError(f"Tuned threshold not found at {THRESHOLD_PATH}; run train mode first.")
     with open(THRESHOLD_PATH, 'r', encoding='utf-8') as f:
         threshold_text = f.read().strip()
     import json
     try:
-        threshold = json.loads(threshold_text)
-        train_countries = list(threshold.keys())
+        best_threshold = json.loads(threshold_text)
     except json.JSONDecodeError:
-        threshold = float(threshold_text)
-        train_countries = ['US', 'India']
-        
-    test_s1_ids = test_data['test_s1']['entity_id']
-    matching_df = format_and_save_output(
-        test_pairs, test_probs, threshold, test_s1_ids,
-    )
+        best_threshold = float(threshold_text)
 
-    assert len(matching_df) == TEST_S1_COUNT
+    tsv_path = os.path.join(OUTPUT_DIR, 'matching_results.tsv')
+    if isinstance(best_threshold, dict):
+        threshold_tag = "v4_percountry"
+    else:
+        threshold_tag = f"{best_threshold:.3f}"
+        
+    sample_key = "1" # Default since predict assumes full model
+    progress_path = os.path.join(CACHE_DIR, f'test_progress_{PIPELINE_VERSION}_{sample_key}_threshold_{threshold_tag}.txt')
+    
+    completed_countries = set()
+    if os.path.exists(progress_path):
+        with open(progress_path, 'r') as f:
+            completed_countries = set(f.read().splitlines())
+            
+    countries = sorted(test_data['test_s1']['country'].unique())
+    
+    for country in countries:
+        if country in completed_countries:
+            print(f"\n[inference] Skipping {country} (Already completed)")
+            continue
+            
+        print(f"\n[inference] --- Processing {country} ---")
+        country_pairs = generate_candidates(
+            test_data['test_s1'], test_data['test_s2'], test_data['test_s3'],
+            target_country=country,
+            cache_prefix=f'test_{PIPELINE_VERSION}'
+        )
+        
+        probs_cache_path = os.path.join(CACHE_DIR, f'test_probs_{PIPELINE_VERSION}_{sample_key}_{threshold_tag}_{country}.pkl')
+        if os.path.exists(probs_cache_path):
+            print("\n[cache] Loading precomputed probabilities...")
+            test_probs = joblib.load(probs_cache_path)
+        else:
+            print("\n[features] Extracting features ...")
+            X_test = extract_features(
+                country_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
+            )
+            test_probs = matcher.predict_proba(X_test)
+            joblib.dump(test_probs, probs_cache_path)
+            del X_test
+            import gc
+            gc.collect()
+        
+        test_s1_ids = test_data['test_s1'][test_data['test_s1']['country'] == country]['entity_id']
+        append_mode = os.path.exists(tsv_path) and len(completed_countries) > 0
+        
+        preds_df = format_and_save_output(
+            country_pairs, test_probs, best_threshold, test_s1_ids,
+            append_mode=append_mode
+        )
+        
+        completed_countries.add(country)
+        with open(progress_path, 'a') as f:
+            f.write(country + '\n')
+            
+        del country_pairs, test_probs, preds_df
+        import gc
+        gc.collect()
+
     _run_validation()
 
 
@@ -567,3 +625,5 @@ if __name__ == "__main__":
         run_predict()
     elif args.mode == "cv":
         run_cv()
+
+

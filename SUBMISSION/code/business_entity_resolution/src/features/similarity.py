@@ -111,10 +111,8 @@ def extract_features(
     s2s3_addrs = s2s3_df.set_index('entity_id')['clean_address']
 
     # 2. Split into MICRO-CHUNKS to prevent Loky Pickling OOM
-    # 500 chunks means ~400k rows per chunk. 
-    # 14 chunks in memory = ~5.6M strings = ~300 MB payload (completely safe).
-    n_chunks = 500
-    chunk_size = max(1, int(np.ceil(len(pairs_df) / n_chunks)))
+    # 14 chunks in memory = ~5.6M strings = ~300 MB payload
+    chunk_size = 50_000
     chunks = [pairs_df.iloc[i:i + chunk_size] for i in range(0, len(pairs_df), chunk_size)]
     
     def prepare_chunk(chunk_df):

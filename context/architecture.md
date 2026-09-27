@@ -314,9 +314,9 @@ Training defaults to the full dataset. Lower `SAMPLE_FRAC` in `src/config.py` fo
 
 ---
 
-## 4. Model Architecture (V3)
+## 4. Model Architecture (V6.2)
 
-Given the extreme candidate generation size (205M+ pairs at K=25) and the 72-hour budget constraints, we cannot use a deep Transformer model on all pairs. Our final architecture uses a cascading two-stage ranking pipeline.
+Given the extreme candidate generation size (205M+ pairs at K=25) and the 72-hour budget constraints, we cannot use a deep Transformer model on all pairs. Our final architecture uses a Pure Ensemble (LightGBM/XGBoost) backed by aggressively optimized Single-Pass Heuristics, explicitly hardened against Pandas OOM issues.
 
 ### Stage 1: The ML Ensemble (LGBM + XGBoost)
 | Aspect | Detail |
@@ -462,9 +462,9 @@ Country partitioning reduces memory by ~60% compared to full dataset operations.
 
 ---
 
-## 9. V3 Architecture (Two-Stage Pipeline & Fast Iteration Loop)
+## 9. V6.2 Architecture (Single-Pass Heuristics & Pure Ensemble)
 
-**Context:** The V2 GPU Semantic Blocking pipeline hit a 0.770 LB ceiling. The gap between our CV (0.875) and LB (0.770) is significant. Furthermore, attempting to process 205M pairs triggered a `MemoryError` in Python. To shatter the 0.90 barrier, we are pivoting to a V3 architecture utilizing a Cross-Encoder Reranker and Country-Specific tuning.
+**Context:** The V2 GPU Semantic Blocking pipeline hit a 0.770 LB ceiling. The gap between our CV (0.875) and LB (0.770) is significant. Furthermore, attempting to process 205M pairs triggered a `MemoryError` in Python. We pivoted away from the V3 Cross-Encoder due to performance degradation and speed limits, and have moved to a V6.2 architecture utilizing Multi-Threaded CPU Heuristics (Rare-Token, Phonetic, Bigram, Numeric) on top of GPU Semantic Blocking.
 
 ### The Iteration Roadmap
 To systematically close the CV-LB gap and hit the leaderboard targets without shooting in the dark, we will iterate using the following verified roadmap:
@@ -492,4 +492,5 @@ To systematically close the CV-LB gap and hit the leaderboard targets without sh
 | v2.1 | 2026-09-25 | Antigravity | Added performance principle requiring multiprocessing to maximize hardware utilization |
 | v2.0 | 2026-09-25 | Antigravity | Major rewrite: integrated EDA findings (country blocking verified safe, S1 100% Latin, script stats), country-first blocking strategy, validation split design, training diagnostics section, skills system integration, legal suffix preservation rule, Unicode-safe cleaning, multi-script ensemble transliteration, fixed package_submission.py path. Resolved all v1.0 open questions. |
 | v1.0 | 2026-09-25 | Antigravity | Initial architecture document |
+
 

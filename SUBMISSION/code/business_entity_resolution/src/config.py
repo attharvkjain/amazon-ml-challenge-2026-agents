@@ -4,13 +4,17 @@ Configuration — all paths, hyperparameters, and thresholds for the pipeline.
 import os
 from pathlib import Path
 
+# ── Versioning ────────────────────────────────────────────────────────────────
+PIPELINE_VERSION = "v6.2"
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "6ab10eb3b23ba_student_resource" / "student_resource" / "dataset"
 TRAIN_DIR = DATA_DIR / "train"
 TEST_DIR = DATA_DIR / "test"
-OUTPUT_DIR = PROJECT_ROOT / "SUBMISSION" / "output"
-DIAGNOSTICS_DIR = PROJECT_ROOT / "notebooks" / "diagnostics"
+# Isolate outputs per pipeline version to prevent overwriting known-good submissions
+OUTPUT_DIR = PROJECT_ROOT / "SUBMISSION" / "output" / PIPELINE_VERSION
+DIAGNOSTICS_DIR = PROJECT_ROOT / "notebooks" / "diagnostics" / PIPELINE_VERSION
 VALIDATE_SCRIPT = (
     PROJECT_ROOT / "data" / "6ab10eb3b23ba_student_resource"
     / "student_resource" / "utils" / "validate_submission.py"
@@ -22,12 +26,12 @@ os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
 
 # ── Development ────────────────────────────────────────────────────────────────
 RANDOM_STATE = 42
-SAMPLE_FRAC = 1.0          # Lower this for sampled development runs
+SAMPLE_FRAC = 0.8          # Lower this for sampled development runs
 VAL_FRAC = 0.2             # 80/20 train/val split on S1 entities
 
 # ── Blocking ───────────────────────────────────────────────────────────────────
-BLOCKING_TOP_K = 25  # Increased to 25 to maximize recall for final >0.9884 F0.5 goal
-TFIDF_NGRAM_RANGE = (1, 1)  # Changed from (3,3) char_wb to (1,1) word unigrams for speed
+BLOCKING_TOP_K = 25
+TFIDF_NGRAM_RANGE = (1, 1)
 TFIDF_MAX_FEATURES = 100_000
 
 # ── Model (LightGBM) ──────────────────────────────────────────────────────────

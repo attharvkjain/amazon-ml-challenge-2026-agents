@@ -1,4 +1,4 @@
-> **Version:** v3.4 | **Last updated:** 2026-09-26 18:31 IST | **By:** Antigravity
+> **Version:** v3.5 | **Last updated:** 2026-09-27 00:09 IST | **By:** Antigravity
 
 # AI Agent Operating Manual
 
@@ -143,12 +143,19 @@ The canonical, tracked Agent Skills live in `skills/`; provider directories mirr
   - **Single-Threaded Pandas Bottlenecks:** Never run Pandas `sort_values` or `drop_duplicates` inside a sequential loop on massive (20M+ row) dataframes (e.g., threshold sweeping). Pre-sort the dataset exactly once, and use $O(\log N)$ `np.searchsorted` parallelized via `joblib.Parallel(prefer="threads")` to evaluate slices instantly across all cores without memory duplication.
   - **Intermediate Pipeline Checkpointing:** Expensive ML operations (e.g., 1.5 hour Cross-Encoder inferences) MUST be explicitly dumped to `joblib` the exact moment they finish (`val_probs_reranked_{sample_key}.pkl`). Never wait until the end of the script to save state.
 
+- **Apples-to-Apples Validation Standard:** All ad-hoc testing must use standardized data splits. For **Minor versions**, use a `7.5%` slice (`SAMPLE_FRAC = 0.075`). For **Major enhancements**, use an **`80%` slice (`SAMPLE_FRAC = 0.8`)** to measure candidate sets and recall.
+- **Strict Submission Time Management:** To ensure the final run completes before the competition site crashes at 5:00 PM IST on Sept 27th:
+  - **1) "Time to block for ultimate final submission run"**: To establish this baseline, run the full pipeline on a **Major (80%) slice**. Multiply that purely empirical time by `1.25` to estimate the 100% full run, then multiply by `1.75` for the final safety buffer. (e.g. `Time = Empirical_80_Time * 1.25 * 1.75`). **Current Limit**: `[PENDING V6.2 FINAL RUN]`
+  - **2) "Development time"**: Calculated as (Time left until 5:00 PM Sept 27th) MINUS ("Time to block for ultimate final submission run"). **Current Value**: `[PENDING]`
+  - *Agents must proactively update these variables upon completion of any milestone and explicitly warn the user if they grow stale.*
+
 ### ❌ DON'T
 
 - **Never edit or delete existing rows** in `context/experiment-log.md` or `context/submission-log.md` — these are **append-only** logs
 - **Never silently overwrite a better logged result** — only update the Current State Snapshot if the new score actually beats the existing best
 - **Never touch raw data files** in `data/` — read-only access only
 - **Never commit large files** (model weights, pickled objects, datasets) — they are in `.gitignore`
+- **Never write one-time use things as files in the project root** (e.g. handoff prompts, quick calculations, ephemeral scripts) � provide them directly in chat or use a dedicated scratch/ folder that you clear periodically to prevent project bloat.
 - **Never modify a teammate's in-progress notebook** without leaving a clearly visible note explaining what you changed and why
 - **Never guess or infer** when information is missing — say "not in the docs" and ask
 - **Never assume the data is comma-separated** — it's tab-separated
@@ -199,6 +206,7 @@ Specifically:
 
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v3.5 | 2026-09-27 | Antigravity | Explicitly updated context after V4 LB result (0.788) per Context Updation Rule. Transitioned to V5 roadmap. |
 | v3.4 | 2026-09-26 | Antigravity | Added Single-Threaded Pandas O(N log N) Bottlenecks and Intermediate Pipeline Checkpointing to Memory limits rule block. |
 | v3.3 | 2026-09-26 | Antigravity | Added extensive Out-Of-Core Memory & Memory Limits rule block (loky chunks, mmap_mode, np.vstack, per-model caching). |
 | v3.2 | 2026-09-26 | Antigravity | Added new DO rule to optimize Candidate Sets for final evaluation scoring. |
@@ -213,3 +221,6 @@ Specifically:
 | v1.2 | 2026-09-25 | Antigravity | Added Context Updation Rule |
 | v1.1 | 2026-09-25 | Member 1 | Updated paths to match submission package layout (SUBMISSION/code/business_entity_resolution/src/) |
 | v1.0 | 2026-09-25 | Member 1 | Initial skeleton created |
+
+
+

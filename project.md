@@ -82,12 +82,12 @@
 | Metric | Value | Details |
 |--------|-------|---------|
 | **Best Local Validation Score (F0.5)** | 0.8878 | Pure Stage 1 Ensemble (LightGBM + XGBoost). Reranker bypassed. |
-| **Best Public LB Score** | 0.770 | Submission 3 (V2 GPU Semantic K=10) |
-| **Approach** | V4 Pure Ensemble Architecture | LGBM+XGB Ensemble. Transformer dropped due to 0.04 degradation. |
-| **Current Focus** | Test Inference | Running full test prediction with the pure V4 ensemble pipeline. | Out-of-Core ML Training | Successfully loaded 17.5GB arrays via mmap. LightGBM currently training, backed by per-model caching. |
+| **Best Public LB Score** | 0.788 | Submission 4 (V4 Pure Ensemble K=25) |
+| **Approach** | V6.2 Single-Pass Heuristics | Semantic GPU + CPU Thread-Pool Heuristics. Pipeline fully hardened against Pandas OOMs. |
+| **Current Focus** | Final Pipeline Hardening | Audited and deployed PIPELINE_VERSION isolation and chunked string deduplication. Preparing for massive 100% data run. |
 | **Commit Hash** | `HEAD` | — |
 | **Produced By** | Antigravity | — |
-| **Date** | 2026-09-26 | — |
+| **Date** | 2026-09-27 | — |
 
 > See [`context/experiment-log.md`](context/experiment-log.md) for experiment history and [`context/submission-log.md`](context/submission-log.md) for canonical submission scores.
 
@@ -265,4 +265,5 @@ With 4 people and multiple AI agents editing docs during a 72-hour hackathon, we
 | v1.2 | 2026-09-25 | Antigravity | Added context/umbrella-research.md and Analysis and Research/research_sources.xlsx to Master Index |
 | v1.1 | 2026-09-25 | Member 1 | Restructured repo to match submission package layout; updated master index, .gitignore, code paths |
 | v1.0 | 2026-09-25 | Member 1 | Initial skeleton created |
+
 

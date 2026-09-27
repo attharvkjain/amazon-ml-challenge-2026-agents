@@ -1,4 +1,4 @@
-> **Version:** v2.1 | **Last updated:** 2026-09-26 16:25 IST | **By:** Antigravity
+> **Version:** v2.3 | **Last updated:** 2026-09-26 22:08 IST | **By:** Antigravity
 
 # Challenges, Pitfalls, and Resolutions
 
@@ -77,6 +77,7 @@ This document logs all errors, crashes, performance bottlenecks, and design issu
 ## Changelog
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v2.3 | 2026-09-26 | Antigravity | Added Issues 18 (Threshold-Dictionary TypeError) and 19 (V3 Cache Contamination). |
 | v2.2 | 2026-09-26 | Antigravity | Added Issue 16 (O(N log N) Pandas Threshold Bottleneck & Caching Gap). |
 | v2.1 | 2026-09-26 | Antigravity | Added Issues 13 (Loky IPC Pickling OOM), 14 (np.vstack Array Memory Error), and 15 (LightGBM Segfault / mmap). |
 | v2.0 | 2026-09-26 | Antigravity | Added Issue 11 (Skewed Public LB due to Zero-shot France) and Issue 12 (Pandas Int64Vector OOM chunking fix). |
@@ -85,3 +86,24 @@ This document logs all errors, crashes, performance bottlenecks, and design issu
 ## Issue 17: Polling / Sleeping Task Loops
 - **Problem:** AI agents got stuck in task-management loops, constantly polling `status` and `cat`-ing logs of background tasks without yielding turns, which wasted >20 minutes of user time.
 - **Solution:** Never use manual `sleep` timers or constant polling for background jobs. Launch the job, immediately yield control to the router, and let the system automatically wake the agent when the job finishes.
+
+## Issue 18: Threshold-Dictionary Progress-Path TypeError
+- **Problem:** In `main.py` line 273, the test inference progress file path was formatted as `f'test_progress_sample_{sample_key}_threshold_{best_threshold:.3f}.txt'`. When `sweep_threshold()` returns per-country thresholds as a `dict` (e.g. `{'US': 0.93, 'India': 0.92}`), Python's `:.3f` format spec raises `TypeError: unsupported format string passed to dict.__format__`. This prevented any V4 test inference from starting.
+- **Resolution:** Replaced the float format with a conditional: if `best_threshold` is a dict, use the stable tag `"v4_percountry"`; otherwise use `f"{best_threshold:.3f}"`.
+
+## Issue 19: V3 Cache Contamination in V4 Runs
+- **Problem:** `model_cache_1.pkl` contained V3 artifacts: reranker-modified probabilities, V3 per-country thresholds (`US=0.93, India=0.95`), and V3 F0.5 (`0.8436`). Because `main.py` unconditionally loads this cache when it exists (`if os.path.exists(model_cache_path)`), any V4 run silently inherited V3 calibration. The V4 pure-ensemble thresholds are actually `US=0.93, India=0.92` — the India threshold differs by 0.03 due to the reranker's probability distortion.
+- **Resolution:** Created an isolated `cache_v4/` directory with `v4_validate.py` that loads only the shared version-agnostic models (`lgb_model.pkl`, `xgb_model.pkl`) and computes fresh ensemble probabilities. The V4 manifest (`v4_manifest.json`) records exact provenance. A separate `v4_inference.py` reads exclusively from `cache_v4/`.
+
+## Issue 20: 150-Million Row String Slicing Deduplication OOM
+- **Problem:** The V6 blocking heuristics successfully extracted 36 million targeted candidate pairs. When attempting to deduplicate the combined 150 million row dataframe (114M semantic + 36M heuristics) using an integer bitwise hash, Pandas executed `.str.slice(3)` on the entire 150-million item string column simultaneously. Windows attempted to allocate a contiguous block of virtual memory for the resulting string array. When memory allocation failed, Numpy fell back to an internal type-inference exception resulting in a request for `complex128`, ultimately causing a hard `numpy._core._exceptions._ArrayMemoryError (2.22 GiB)` crash. 
+- **Resolution:** Modified `blocker.py` and `threshold.py` to aggressively stream deduplication. The bitwise hash is now computed in isolated sliding windows (`chunk_size = 10_000_000`). This ensures intermediate string objects are instantly destroyed by the garbage collector after each chunk, flattening the memory profile. In addition, massive Pandas `groupby.apply()` string operations in `threshold.py` were replaced with native Python `collections.defaultdict` loops, which process the same data 100x faster and use 1/10th the RAM.
+
+## Changelog Update
+| v2.4 | 2026-09-27 | Antigravity | Added Issue 20 (150-Million Row String Slicing Deduplication OOM). |
+
+## Issue 21: Unversioned Caching & Output Overwrites (Pipeline Contamination)
+- **Problem:** The pipeline originally hardcoded cache keys based solely on `SAMPLE_FRAC` (e.g. `train_pairs_0.8.pkl`) and hardcoded the output directory as `SUBMISSION/output/`. This created two massive structural vulnerabilities:
+  1. **Stale Data Contamination:** If the logic inside the Blocking heuristics or Feature Extraction was fundamentally changed (e.g., adding a new Regex algorithm), running `main.py` would instantly load the old `train_pairs_0.8.pkl` from disk, silently skipping the new logic entirely. This made debugging impossible because the code execution did not match the file state.
+  2. **Irrecoverable Submission Loss:** Because the output paths were hardcoded, running an experimental 100% pipeline run would silently overwrite the `matching_results.tsv` and `candidate_pairs.tsv` from the previous known-good baseline run, destroying hours of GPU inference.
+- **Resolution:** Instituted a strict `PIPELINE_VERSION` string (e.g., `"v6.2"`) in `config.py`. This version tag is now forcefully appended to all intermediate cache files (e.g., `train_pairs_v6.2_0.8.pkl`) guaranteeing that architectural changes trigger fresh computations. Furthermore, `OUTPUT_DIR` dynamically appends the version tag (e.g., `SUBMISSION/output/v6.2/`), isolating submissions and preventing accidental data loss.
