@@ -1,4 +1,4 @@
-> **Version:** v2.3 | **Last updated:** 2026-09-26 22:08 IST | **By:** Antigravity
+> **Version:** v2.5 | **Last updated:** 2026-09-27 | **By:** Antigravity
 
 # Challenges, Pitfalls, and Resolutions
 
@@ -107,3 +107,22 @@ This document logs all errors, crashes, performance bottlenecks, and design issu
   1. **Stale Data Contamination:** If the logic inside the Blocking heuristics or Feature Extraction was fundamentally changed (e.g., adding a new Regex algorithm), running `main.py` would instantly load the old `train_pairs_0.8.pkl` from disk, silently skipping the new logic entirely. This made debugging impossible because the code execution did not match the file state.
   2. **Irrecoverable Submission Loss:** Because the output paths were hardcoded, running an experimental 100% pipeline run would silently overwrite the `matching_results.tsv` and `candidate_pairs.tsv` from the previous known-good baseline run, destroying hours of GPU inference.
 - **Resolution:** Instituted a strict `PIPELINE_VERSION` string (e.g., `"v6.2"`) in `config.py`. This version tag is now forcefully appended to all intermediate cache files (e.g., `train_pairs_v6.2_0.8.pkl`) guaranteeing that architectural changes trigger fresh computations. Furthermore, `OUTPUT_DIR` dynamically appends the version tag (e.g., `SUBMISSION/output/v6.2/`), isolating submissions and preventing accidental data loss.
+
+## Issue 22: TF-IDF Sparse Dot Product Memory Fragmentation OOM
+- **Problem:** During Test Inference for India (4.7M entities), the TF-IDF heuristic blocker's chunked sparse dot product crashed with `numpy._core._exceptions._ArrayMemoryError: Unable to allocate 3.43 GiB for an array with shape (460443154,)`. The `chunk_size` was set to 100, meaning 100 S1 rows × 4.7M S23 columns produced an intermediate dense result with 460M non-zero entries. At 23.5 GB total RAM usage, Windows could not find a contiguous 3.4 GB block due to memory fragmentation.
+- **Resolution:** Reduced `chunk_size` in `heuristic_blocker.py` from 100 to 10, mathematically capping the intermediate array allocation at ~370 MB (10 × 4.7M × 8 bytes). This entirely immunizes the code against memory fragmentation regardless of dataset size.
+
+## Issue 23: Inline `import gc` Namespace Shadowing
+- **Problem:** In `blocker.py`, the aggressive GC fix added `import gc; gc.collect()` inline at line 284. However, `gc` was already imported at the module level (line 7). On the test-inference code path, the function's local namespace hadn't yet executed the inline `import gc` statement before reaching a different `gc.collect()` call at line 218, causing `UnboundLocalError: local variable 'gc' referenced before assignment`.
+- **Resolution:** Removed the redundant inline `import gc` and relied on the existing top-level module import.
+
+## Issue 24: CACHE_DIR Not Exported from config.py
+- **Problem:** During the `run_test_inference()` decoupling refactor, several modules (`similarity.py`, `main.py`) attempted `from config import CACHE_DIR`. However, `CACHE_DIR` was defined only as a local variable inside `main.py`, not in `config.py`. This caused `ImportError: cannot import name 'CACHE_DIR' from 'config'` on every restart.
+- **Resolution:** Replaced all `from config import CACHE_DIR` with dynamically computed paths using `os.path.join(os.path.dirname(...), 'cache')`, making the cache directory resolution self-contained and independent of config.py.
+
+## Issue 25: Decoupled Test Inference Architecture
+- **Problem:** Test inference was nested inside `run_train()`, forcing the pipeline to unpickle and load ~14 GB of training data (Stages 1-7) just to reach Stage 8, even when the model was already fully trained and cached. This wasted 5+ minutes and 14 GB of RAM on every restart.
+- **Resolution:** Extracted Stage 8-12 into a standalone `run_test_inference()` function in `main.py`. Updated `measure_full_time.py` to check if the model cache exists and directly invoke `run_test_inference()` if so, completely bypassing Stages 1-7. Zero training data is loaded.
+
+## Changelog Update
+| v2.5 | 2026-09-27 | Antigravity | Added Issues 22-25 (TF-IDF fragmentation OOM, gc namespace shadowing, CACHE_DIR import errors, decoupled test inference). |

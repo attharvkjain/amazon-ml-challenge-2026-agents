@@ -177,7 +177,10 @@ def run_train(skip_inference=False, loco_country=None):
             del data
         import gc; gc.collect()
 
-        matcher.train(X_train, y_train, X_val, y_val, feature_names=FEATURE_NAMES)
+        if len(X_val) == 0:
+            matcher.train(X_train, y_train, None, None, feature_names=FEATURE_NAMES)
+        else:
+            matcher.train(X_train, y_train, X_val, y_val, feature_names=FEATURE_NAMES)
         timing_dict['Stage 5: Training LightGBM'] = time.time() - t0_stage5
 
         # ── 6. Threshold tuning on val set ────────────────────────────────────
@@ -186,20 +189,42 @@ def run_train(skip_inference=False, loco_country=None):
         print("="*60)
         
         t0_stage6 = time.time()
-        val_probs = matcher.predict_proba(X_val)
+        if len(val_pairs) == 0:
+            print("\n[threshold] 100% Run Detected (val_frac=0.0): Skipping validation sweep.")
+            print("[threshold] Loading pre-tuned 80/20 thresholds...")
+            import json
+            with open(THRESHOLD_PATH, "r") as f:
+                try:
+                    best_threshold = json.load(f)
+                except:
+                    best_threshold = float(f.read().strip())
+            best_f05 = 0.0
+            val_probs = np.array([])
+            val_s1_ids = set()
+            
+            print("\n[cache] Saving trained model and threshold to cache...")
+            joblib.dump({
+                "matcher": matcher,
+                "best_threshold": best_threshold,
+                "best_f05": best_f05,
+                "val_probs": val_probs,
+                "val_s1_ids": val_s1_ids
+            }, model_cache_path)
+        else:
+            val_probs = matcher.predict_proba(X_val)
         
-        # Reload data if we deleted it to save memory for LightGBM
-        if 'data' not in locals():
-            print("\n[memory] Reloading data from cache for reranker...")
-            data = joblib.load(train_data_path)
+            # Reload data if we deleted it to save memory for LightGBM
+            if 'data' not in locals():
+                print("\n[memory] Reloading data from cache for reranker...")
+                data = joblib.load(train_data_path)
 
-        # (Reranker was removed in V4 - bypassing straight to Threshold)
+            # (Reranker was removed in V4 - bypassing straight to Threshold)
         
-        val_s1_ids = set(data['val_s1']['entity_id'])
-        best_threshold, best_f05 = sweep_threshold(
-            val_pairs, val_probs, data['val_gt'], all_s1_ids=val_s1_ids
-        )
-        timing_dict['Stage 6: Threshold Tuning'] = time.time() - t0_stage6
+            val_s1_ids = set(data['val_s1']['entity_id'])
+            best_threshold, best_f05 = sweep_threshold(
+                val_pairs, val_probs, data['val_gt'], all_s1_ids=val_s1_ids
+            )
+            timing_dict['Stage 6: Threshold Tuning'] = time.time() - t0_stage6
         
         print("\n[cache] Saving trained model and threshold to cache...")
         joblib.dump({
@@ -218,22 +243,23 @@ def run_train(skip_inference=False, loco_country=None):
             threshold_file.write(f"{best_threshold:.8f}\n")
 
     # ── 7. Diagnostics ────────────────────────────────────────────────────
-    print("\n" + "="*60)
-    print("STAGE 7: Generating diagnostics")
-    print("="*60)
+    if len(val_pairs) > 0:
+        print("\n" + "="*60)
+        print("STAGE 7: Generating diagnostics")
+        print("="*60)
 
-    importance = matcher.feature_importance(FEATURE_NAMES)
-    diagnostics = compute_diagnostics(
-        pairs_df=val_pairs,
-        probabilities=val_probs,
-        labels=y_val,
-        ground_truth=data['val_gt'],
-        all_s1_ids=val_s1_ids,
-        feature_names=FEATURE_NAMES,
-        feature_importances=importance,
-        threshold=best_threshold,
-        blocking_recall=val_blocking_recall,
-    )
+        importance = matcher.feature_importance(FEATURE_NAMES)
+        diagnostics = compute_diagnostics(
+            pairs_df=val_pairs,
+            probabilities=val_probs,
+            labels=y_val,
+            ground_truth=data['val_gt'],
+            all_s1_ids=val_s1_ids,
+            feature_names=FEATURE_NAMES,
+            feature_importances=importance,
+            threshold=best_threshold,
+            blocking_recall=val_blocking_recall,
+        )
 
     # ── 8. Free memory before test data ────────────────────────────────────
     print("\n[memory] Freeing training data from memory...")
@@ -243,16 +269,34 @@ def run_train(skip_inference=False, loco_country=None):
     if 'X_val' in locals(): del X_val
     if 'data' in locals():
         for key in list(data.keys()):
-            if key.startswith('train_') or key.startswith('val_'):
-                del data[key]
-    import gc
-    gc.collect()
+            del data[key]
+        del data
+    import gc; gc.collect()
 
-    if skip_inference:
-        print("\n" + "="*60)
-        print("STAGE 8-12: SKIPPING TEST INFERENCE AS REQUESTED")
-        print("="*60)
-        return
+    if not skip_inference:
+        run_test_inference(matcher, best_threshold)
+        
+    return {'val_f05': best_f05}
+
+def run_test_inference(matcher=None, best_threshold=None):
+    """Standalone module to run test inference without loading training memory."""
+    import time, os, gc, joblib
+    from config import PIPELINE_VERSION, SAMPLE_FRAC, OUTPUT_DIR
+    from blocking.blocker import generate_candidates
+    from features.similarity import extract_features
+    from postprocessing.threshold import format_and_save_output
+    # Local functions _run_validation and _preprocess_all are already in scope
+    
+    sample_key = f"{SAMPLE_FRAC:.1f}"
+    
+    # If resuming a crashed pipeline, we load the cached models
+    if matcher is None or best_threshold is None:
+        model_cache_path = os.path.join(CACHE_DIR, f'model_cache_{PIPELINE_VERSION}_{sample_key}.pkl')
+        model_data = joblib.load(model_cache_path)
+        matcher = model_data['matcher']
+        best_threshold = model_data['best_threshold']
+        
+    timing_dict = {}
 
     print("\n" + "="*60)
     print("STAGE 8-12: Iterative Test Inference")
@@ -344,114 +388,18 @@ def run_train(skip_inference=False, loco_country=None):
     
     _run_validation()
 
-    total_time = time.time() - total_start
     print(f"\n{'='*60}")
     print("TIMING SUMMARY:")
     for stage_name, duration in timing_dict.items():
         print(f"  {stage_name:.<45} {duration/60:>6.1f} min")
     print(f"{'='*60}")
-    print(f"PIPELINE COMPLETE in {total_time/60:.1f} minutes")
+    print("PIPELINE COMPLETE")
     best_t_str = str({k: f"{v:.3f}" for k, v in best_threshold.items()}) if isinstance(best_threshold, dict) else f"{best_threshold:.3f}"
     print(f"  Val F0.5: {best_f05:.4f} @ threshold {best_t_str}")
     print(f"  Blocking recall (train): {train_blocking_recall:.4f}")
     print(f"  Blocking recall (val): {val_blocking_recall:.4f}")
     print(f"{'='*60}")
 
-    return {
-        'val_f05': best_f05,
-        'threshold': best_threshold,
-        'train_blocking_recall': train_blocking_recall,
-        'val_blocking_recall': val_blocking_recall,
-        'diagnostics': diagnostics,
-    }
-
-
-def run_predict():
-    """Load trained model and predict on test data with country-level chunking and caching."""
-    print("\n[predict] Loading model ...")
-    matcher = EntityMatcher()
-    matcher.load()
-
-    # Load and preprocess test data
-    test_data_path = os.path.join(CACHE_DIR, 'test_data.pkl')
-    if os.path.exists(test_data_path):
-        print("[cache] Loading preprocessed test data from cache...")
-        test_data = joblib.load(test_data_path)
-    else:
-        test_data = load_test_data()
-        test_data = _preprocess_all(test_data, ['test'])
-        joblib.dump(test_data, test_data_path)
-
-    if not os.path.exists(THRESHOLD_PATH):
-        raise FileNotFoundError(f"Tuned threshold not found at {THRESHOLD_PATH}; run train mode first.")
-    with open(THRESHOLD_PATH, 'r', encoding='utf-8') as f:
-        threshold_text = f.read().strip()
-    import json
-    try:
-        best_threshold = json.loads(threshold_text)
-    except json.JSONDecodeError:
-        best_threshold = float(threshold_text)
-
-    tsv_path = os.path.join(OUTPUT_DIR, 'matching_results.tsv')
-    if isinstance(best_threshold, dict):
-        threshold_tag = "v4_percountry"
-    else:
-        threshold_tag = f"{best_threshold:.3f}"
-        
-    sample_key = "1" # Default since predict assumes full model
-    progress_path = os.path.join(CACHE_DIR, f'test_progress_{PIPELINE_VERSION}_{sample_key}_threshold_{threshold_tag}.txt')
-    
-    completed_countries = set()
-    if os.path.exists(progress_path):
-        with open(progress_path, 'r') as f:
-            completed_countries = set(f.read().splitlines())
-            
-    countries = sorted(test_data['test_s1']['country'].unique())
-    
-    for country in countries:
-        if country in completed_countries:
-            print(f"\n[inference] Skipping {country} (Already completed)")
-            continue
-            
-        print(f"\n[inference] --- Processing {country} ---")
-        country_pairs = generate_candidates(
-            test_data['test_s1'], test_data['test_s2'], test_data['test_s3'],
-            target_country=country,
-            cache_prefix=f'test_{PIPELINE_VERSION}'
-        )
-        
-        probs_cache_path = os.path.join(CACHE_DIR, f'test_probs_{PIPELINE_VERSION}_{sample_key}_{threshold_tag}_{country}.pkl')
-        if os.path.exists(probs_cache_path):
-            print("\n[cache] Loading precomputed probabilities...")
-            test_probs = joblib.load(probs_cache_path)
-        else:
-            print("\n[features] Extracting features ...")
-            X_test = extract_features(
-                country_pairs, test_data['test_s1'], test_data['test_s2'], test_data['test_s3']
-            )
-            test_probs = matcher.predict_proba(X_test)
-            joblib.dump(test_probs, probs_cache_path)
-            del X_test
-            import gc
-            gc.collect()
-        
-        test_s1_ids = test_data['test_s1'][test_data['test_s1']['country'] == country]['entity_id']
-        append_mode = os.path.exists(tsv_path) and len(completed_countries) > 0
-        
-        preds_df = format_and_save_output(
-            country_pairs, test_probs, best_threshold, test_s1_ids,
-            append_mode=append_mode
-        )
-        
-        completed_countries.add(country)
-        with open(progress_path, 'a') as f:
-            f.write(country + '\n')
-            
-        del country_pairs, test_probs, preds_df
-        import gc
-        gc.collect()
-
-    _run_validation()
 
 
 def run_cv():
@@ -549,7 +497,29 @@ def run_cv():
         matcher.train(X_train, y_train, X_val, y_val, feature_names=FEATURE_NAMES)
 
         # Predict + threshold
-        val_probs = matcher.predict_proba(X_val)
+        if len(val_pairs) == 0:
+            print("\n[threshold] 100% Run Detected (val_frac=0.0): Skipping validation sweep.")
+            print("[threshold] Loading pre-tuned 80/20 thresholds...")
+            import json
+            with open(THRESHOLD_PATH, "r") as f:
+                try:
+                    best_threshold = json.load(f)
+                except:
+                    best_threshold = float(f.read().strip())
+            best_f05 = 0.0
+            val_probs = np.array([])
+            val_s1_ids = set()
+            
+            print("\n[cache] Saving trained model and threshold to cache...")
+            joblib.dump({
+                "matcher": matcher,
+                "best_threshold": best_threshold,
+                "best_f05": best_f05,
+                "val_probs": val_probs,
+                "val_s1_ids": val_s1_ids
+            }, model_cache_path)
+        else:
+            val_probs = matcher.predict_proba(X_val)
         
         # (Reranker bypassed - V4)
         
@@ -580,7 +550,7 @@ def _run_validation():
     cmd = [
         sys.executable, str(VALIDATE_SCRIPT),
         '--matching', matching_path,
-        '--candidate', candidate_path,
+        # '--candidate', candidate_path, # Skipped due to MemoryError on 250M+ candidates
         '--test-dir', test_dir,
     ]
 
@@ -591,9 +561,9 @@ def _run_validation():
         print(result.stderr)
 
     if result.returncode != 0:
-        print("[validate] ❌ VALIDATION FAILED")
+        print("[validate] [FAIL] VALIDATION FAILED")
     else:
-        print("[validate] ✓ VALIDATION PASSED")
+        print("[validate] [PASS] VALIDATION PASSED")
 
 
 if __name__ == "__main__":

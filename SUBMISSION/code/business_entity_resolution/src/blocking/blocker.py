@@ -276,6 +276,13 @@ def generate_candidates(
                 
                 streams.extend([f_tfidf.result(), f_rare.result(), f_bigram.result(), f_phonetic.result(), f_numeric.result()])
             
+        # Aggressive garbage collection before massive concatenation
+        if 's1_c' in locals(): del s1_c
+        if 's23_c' in locals(): del s23_c
+        if 'orphan_s1_c' in locals(): del orphan_s1_c
+        if 'orphan_s23_c' in locals(): del orphan_s23_c
+        gc.collect()
+
         print("  Unioning all streams...", flush=True)
         combined_df = pd.concat(streams, ignore_index=True)
         del streams

@@ -1,4 +1,4 @@
-> **Version:** v6.0 | **Last updated:** 2026-09-26 20:28 IST | **By:** Antigravity | **Last updated:** 2026-09-26 18:32 IST | **By:** Antigravity
+> **Version:** v6.2 | **Last updated:** 2026-09-27 17:42 IST | **By:** Antigravity
 
 # Architecture — Business Entity Resolution Pipeline
 
@@ -34,7 +34,7 @@ AmazonMLChallenge_2026/                     # ← workspace root
 │   ├── code/business_entity_resolution/
 │   │   ├── src/
 │   │   │   ├── __init__.py
-│   │   │   ├── main.py                    # Single entry point: `python src/main.py`
+│   │   │   ├── main.py                    # Entry point: run_train() for full pipeline, run_test_inference() for standalone inference
 │   │   │   ├── config.py                  # All paths, hyperparams, thresholds
 │   │   │   │
 │   │   │   ├── preprocessing/

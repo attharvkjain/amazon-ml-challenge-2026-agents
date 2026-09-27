@@ -1,4 +1,4 @@
-> **Version:** v1.6 | **Last updated:** 2026-09-27 02:56 IST | **By:** Antigravity
+> **Version:** v1.8 | **Last updated:** 2026-09-27 17:42 IST | **By:** Antigravity
 
 # Experiment Log
 
@@ -31,6 +31,8 @@ Add a new row to the table below **before merging your branch to main**. Fill in
 | 8 | 2026-09-27 | V6.1 Orphan-Targeted Bi-gram & Phonetic Blocking | S23 Orphan trigger < 0.85, Bi-gram Hash (freq<=100), Phonetic Metaphone Hash (freq<=50) | pending CV | Antigravity | `HEAD` | Solved Single-Threaded Pandas Bottleneck by replacing 1D token hashing with Bi-gram Hash Blocking. Ran cleanly on CPU in <5 mins without OOM. Candidate volume: 119M (+67.9M). Blocking recall jumped from 81.08% to 96.75%. |
 | 9 | 2026-09-27 | V6.2 Global Numeric Hash | Added targeted numeric extraction (digits stripped of leading zeros, `freq <= 500`) globally across S23. Reverted K=25. | pending CV | Antigravity | `HEAD` | Caught heavily transliterated S2 strings where numbers survived exactly. Prevented `[1, 0, 01]` common-number memory explosion. Recall jumped from 96.75% to 99.43%. Extrapolated candidates: 135M. |
 
+| 10 | 2026-09-27 | V6.2 Full 80/20 Evaluation Run | LGBM+XGB avg, K=25 semantic, 5 CPU heuristics (TF-IDF/Rare/Bigram/Phonetic/Numeric), per-country thresholds India=0.930/US=0.950 | 0.9478 | Antigravity | `HEAD` | First complete end-to-end run of V6.2. Blocking recall=95.50%. 145M India pairs, ~90M US pairs (est). Per-country F0.5: India=0.9288, US=0.9605. Singleton accuracy=90.42%. Test inference in progress for Public LB submission. |
+
 *(Add new experiments above this line.)*
 
 ---
@@ -46,6 +48,7 @@ Add a new row to the table below **before merging your branch to main**. Fill in
 ## Changelog
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v1.8 | 2026-09-27 | Antigravity | Logged experiment #10: V6.2 Full 80/20 Evaluation Run with 0.9478 overall F0.5. |
 | v1.7 | 2026-09-27 | Antigravity | Logged experiment #9: V6.2 Global Numeric Hash Blocking yielding 99.43% candidate recall. |
 | v1.6 | 2026-09-27 | Antigravity | Logged experiment #8: V6.1 Orphan-Targeted Bi-gram & Phonetic Blocking. |
 | v1.5 | 2026-09-27 | Antigravity | Logged experiment #7: V5 Single-Pass Conditional Blocking. |

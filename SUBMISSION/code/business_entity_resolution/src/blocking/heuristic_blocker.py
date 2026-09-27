@@ -48,7 +48,7 @@ def _generate_tfidf_candidates(s1_df: pd.DataFrame, s23_df: pd.DataFrame, top_k:
     print(f"    [TF-IDF] Executing sparse dot product (chunked)...")
     t1 = time.time()
     
-    chunk_size = 100  # Strict limit to prevent MemoryError on dense conversions
+    chunk_size = 10  # Strict limit to prevent MemoryError on dense conversions (10 * 4.7M = 370MB)
     s1_ids = s1_df['entity_id'].values
     s23_ids = s23_df['entity_id'].values
     s23_sources = s23_df['source'].values if 'source' in s23_df.columns else np.array(['S2' if str(x).startswith('S2') else 'S3' for x in s23_ids])

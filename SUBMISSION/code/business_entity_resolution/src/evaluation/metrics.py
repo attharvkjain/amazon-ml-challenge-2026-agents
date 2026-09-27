@@ -117,7 +117,8 @@ def compute_diagnostics(
     predictions = _apply_threshold_and_constraint(pairs_df, probabilities, threshold)
     overall_f05 = f05_macro(predictions, ground_truth, all_s1_ids)
     diagnostics['overall_f05'] = overall_f05
-    print(f"\n  Overall F0.5 at threshold {threshold:.3f}: {overall_f05:.4f}")
+    t_str = str({k: f"{v:.3f}" for k, v in threshold.items()}) if isinstance(threshold, dict) else f"{threshold:.3f}"
+    print(f"\n  Overall F0.5 at threshold {t_str}: {overall_f05:.4f}")
 
     # Singleton accuracy
     n_singletons = sum(1 for s1 in all_s1_ids if not ground_truth.get(s1, set()))
@@ -201,7 +202,11 @@ def _plot_threshold_curve(
     ax.plot(thresholds, f05s, label='F0.5 (macro)', linewidth=2)
     ax.plot(thresholds, precisions, label='Precision (micro)', linestyle='--')
     ax.plot(thresholds, recalls, label='Recall (micro)', linestyle='--')
-    ax.axvline(x=best_threshold, color='red', linestyle=':', label=f'Best threshold = {best_threshold:.3f}')
+    
+    t_str = str({k: f"{v:.3f}" for k, v in best_threshold.items()}) if isinstance(best_threshold, dict) else f"{best_threshold:.3f}"
+    plot_t = list(best_threshold.values())[0] if isinstance(best_threshold, dict) else best_threshold
+    ax.axvline(x=plot_t, color='red', linestyle=':', label=f'Best threshold = {t_str}')
+    
     ax.set_xlabel('Threshold')
     ax.set_ylabel('Score')
     ax.set_title('Score vs Threshold')
@@ -209,7 +214,13 @@ def _plot_threshold_curve(
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     path = os.path.join(save_dir, 'threshold_curve.png')
-    fig.savefig(path, dpi=100)
+    for _ in range(3):
+        try:
+            fig.savefig(path, dpi=100)
+            break
+        except OSError:
+            import time
+            time.sleep(1)
     plt.close(fig)
     print(f"  Saved: {path}")
 
@@ -217,11 +228,12 @@ def _plot_threshold_curve(
 def _plot_confusion_matrix(
     probabilities: np.ndarray,
     labels: np.ndarray,
-    threshold: float,
+    threshold: float | dict,
     save_dir: str | os.PathLike,
 ) -> None:
     """Save confusion matrix heatmap."""
-    preds = (probabilities >= threshold).astype(int)
+    plot_t = list(threshold.values())[0] if isinstance(threshold, dict) else threshold
+    preds = (probabilities >= plot_t).astype(int)
 
     tp = int(((preds == 1) & (labels == 1)).sum())
     fp = int(((preds == 1) & (labels == 0)).sum())
@@ -240,11 +252,17 @@ def _plot_confusion_matrix(
     for i in range(2):
         for j in range(2):
             ax.text(j, i, f'{cm[i, j]:,}', ha='center', va='center', fontsize=14)
-    ax.set_title(f'Confusion Matrix (threshold={threshold:.3f})')
+    t_str = str({k: f"{v:.3f}" for k, v in threshold.items()}) if isinstance(threshold, dict) else f"{threshold:.3f}"
+    ax.set_title(f'Confusion Matrix (threshold={t_str})')
     fig.colorbar(im)
     plt.tight_layout()
     path = os.path.join(save_dir, 'confusion_matrix.png')
-    fig.savefig(path, dpi=100)
+    for _ in range(3):
+        try:
+            fig.savefig(path, dpi=100)
+            break
+        except OSError:
+            time.sleep(1)
     plt.close(fig)
     print(f"  Saved: {path}")
 
@@ -288,7 +306,13 @@ def _per_country_scores(
             ax.text(i, v + 0.02, f'{v:.4f}', ha='center')
         plt.tight_layout()
         path = os.path.join(DIAGNOSTICS_DIR, 'per_country_f05.png')
-        fig.savefig(path, dpi=100)
+        for _ in range(3):
+            try:
+                fig.savefig(path, dpi=100)
+                break
+            except OSError:
+                import time
+                time.sleep(1)
         plt.close(fig)
         print(f"  Saved: {path}")
 
@@ -314,6 +338,12 @@ def _plot_score_distribution(
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     path = os.path.join(save_dir, 'score_distribution.png')
-    fig.savefig(path, dpi=100)
+    import time
+    for _ in range(3):
+        try:
+            fig.savefig(path, dpi=100)
+            break
+        except OSError:
+            time.sleep(1)
     plt.close(fig)
     print(f"  Saved: {path}")

@@ -127,8 +127,15 @@ def extract_features(
 
     print(f"[features] Extracting features on {n_jobs} cores in batches to bound memory overhead...")
     
-    # Pre-allocate to prevent np.vstack OOM on 13GB arrays
-    results_matrix = np.empty((len(pairs_df), len(FEATURE_NAMES)), dtype=np.float32)
+    # Pre-allocate to disk to prevent np.empty OOM on 19GB arrays
+    import uuid
+    import os
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    mmap_path = os.path.join(cache_dir, f'features_mmap_{uuid.uuid4().hex}.dat')
+    results_matrix = np.lib.format.open_memmap(
+        mmap_path, mode='w+', dtype=np.float32, shape=(len(pairs_df), len(FEATURE_NAMES))
+    )
     current_idx = 0
     
     # Process batch by batch so we don't hold 48GB of strings in memory simultaneously
@@ -157,13 +164,18 @@ def extract_features(
 
 
 def generate_labels(pairs_df: pd.DataFrame, ground_truth: dict[str, set[str]]) -> np.ndarray:
-    labels = []
-    for row in pairs_df.itertuples(index=False):
-        gt_set = ground_truth.get(row.s1_id, set())
-        labels.append(1 if row.s2s3_id in gt_set else 0)
+    labels = np.zeros(len(pairs_df), dtype=np.int8)
+    
+    s1_vals = pairs_df['s1_id'].values
+    s2s3_vals = pairs_df['s2s3_id'].values
+    
+    # Direct array iteration avoids namedtuple overhead and massive list memory
+    for i in range(len(pairs_df)):
+        gt_set = ground_truth.get(s1_vals[i])
+        if gt_set is not None and s2s3_vals[i] in gt_set:
+            labels[i] = 1
 
-    labels = np.array(labels, dtype=np.int32)
-    pos = labels.sum()
+    pos = int(labels.sum())
     neg = len(labels) - pos
     if pos > 0:
         print(f"[features] Labels: {pos:,} pos, {neg:,} neg (ratio 1:{neg/pos:.1f})")

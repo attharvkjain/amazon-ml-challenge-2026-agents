@@ -1,4 +1,4 @@
-> **Version:** v1.3 | **Last updated:** 2026-09-27 00:08 IST | **By:** Antigravity
+> **Version:** v1.4 | **Last updated:** 2026-09-27 18:37 IST | **By:** Antigravity
 
 # Submission Log
 
@@ -25,6 +25,7 @@ Add a new row to the table below **immediately after submitting** to the leaderb
 | 2 | 2026-09-26 01:00 | Baseline Full (All countries) | 0.697 | `HEAD` | USER | 94M pair full inference completed. Validated clean duplicates |
 | 3 | 2026-09-26 11:08 | V2 GPU Semantic Blocking (K=10) | 0.770 | `HEAD` | USER | Huge precision, but strict K=10 hard-capped max recall causing macro-average penalties. |
 | 4 | 2026-09-27 00:08 | V4 Pure Ensemble (K=25, semantic block) | 0.788 | `HEAD` | USER | Removed broken V3 reranker. Local CV was 0.8878, but public LB only 0.788 (abysmal drop). Gap indicates candidate recall ceiling or retrieval failures. |
+| 5 | 2026-09-27 18:30 | V6.2 Full 80/20 Pipeline | 0.823 | `HEAD` | USER | Massive jump from 0.788. Pipeline successfully evaluated 263M candidate pairs and deduplicated cleanly. Validation script MemoryError bypassed. |
 
 ---
 
@@ -32,9 +33,9 @@ Add a new row to the table below **immediately after submitting** to the leaderb
 
 | Metric | Value |
 |--------|-------|
-| **Best Public Score** | 0.788 |
-| **Submission #** | 4 |
-| **Approach** | V4 Pure Ensemble (K=25, semantic block) |
+| **Best Public Score** | 0.823 |
+| **Submission #** | 5 |
+| **Approach** | V6.2 Full 80/20 Pipeline |
 | **Commit** | `HEAD` |
 
 > ⚠️ **Before making a new submission:** Check that your local CV score is competitive with the current best. Don't waste submissions on regressions.
@@ -45,6 +46,7 @@ Add a new row to the table below **immediately after submitting** to the leaderb
 
 | Version | Date | By | Summary |
 |---------|------|----|---------|
+| v1.4 | 2026-09-27 | Antigravity | Logged submission #5 (0.823) and updated Current Best |
 | v1.3 | 2026-09-27 | Antigravity | Logged submission #4 (0.788) |
 | v1.2 | 2026-09-26 | Antigravity | Logged submission #3 (0.770) |
 | v1.1 | 2026-09-26 | Antigravity | Logged submissions #1 (0.153) and #2 (0.697) |

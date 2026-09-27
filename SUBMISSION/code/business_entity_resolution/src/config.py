@@ -26,8 +26,8 @@ os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
 
 # ── Development ────────────────────────────────────────────────────────────────
 RANDOM_STATE = 42
-SAMPLE_FRAC = 0.8          # Lower this for sampled development runs
-VAL_FRAC = 0.2             # 80/20 train/val split on S1 entities
+SAMPLE_FRAC = 1.0          # Lower this for sampled development runs
+VAL_FRAC = 0.0             # 80/20 train/val split on S1 entities
 
 # ── Blocking ───────────────────────────────────────────────────────────────────
 BLOCKING_TOP_K = 25

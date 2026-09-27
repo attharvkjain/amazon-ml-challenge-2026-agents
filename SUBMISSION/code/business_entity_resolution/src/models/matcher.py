@@ -14,9 +14,10 @@ from pathlib import Path
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import LGBM_PARAMS, OUTPUT_DIR
+from config import LGBM_PARAMS, OUTPUT_DIR, PIPELINE_VERSION, SAMPLE_FRAC
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'cache')
 
+SAMPLE_KEY = f"{SAMPLE_FRAC:g}"
 
 class EntityMatcher:
     """Ensemble matcher."""
@@ -49,7 +50,7 @@ class EntityMatcher:
         # --- LightGBM ---
         print("\n[matcher] Training LightGBM...")
         import joblib
-        lgb_cache_path = os.path.join(CACHE_DIR, 'lgb_model.pkl')
+        lgb_cache_path = os.path.join(CACHE_DIR, f'lgb_model_{PIPELINE_VERSION}_{SAMPLE_KEY}.pkl')
         if os.path.exists(lgb_cache_path):
             print("[matcher] Loading LightGBM from per-model cache...")
             self.lgb_model = joblib.load(lgb_cache_path)
@@ -77,7 +78,7 @@ class EntityMatcher:
 
         # --- XGBoost ---
         print("\n[matcher] Training XGBoost...")
-        xgb_cache_path = os.path.join(CACHE_DIR, 'xgb_model.pkl')
+        xgb_cache_path = os.path.join(CACHE_DIR, f'xgb_model_{PIPELINE_VERSION}_{SAMPLE_KEY}.pkl')
         if os.path.exists(xgb_cache_path):
             print("[matcher] Loading XGBoost from per-model cache...")
             self.xgb_model = joblib.load(xgb_cache_path)
